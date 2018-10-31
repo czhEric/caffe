@@ -8,8 +8,6 @@
 #include <string>
 #include <fstream>
 using namespace std;
-#if 0
-//sample 1
 int main(int argc, char* argv[])
 {
     cl_int    status;
@@ -22,20 +20,48 @@ int main(int argc, char* argv[])
 
     /**Step 3: Create context.*/
     cl_context context = clCreateContext(NULL,1, devices,NULL,NULL,NULL);
+    if(context == NULL)
+    {
+        cerr << "Failed to create OpenCL context." << endl;
+        return 1;
+    }
 
     /**Step 4: Creating command queue associate with the context.*/
     cl_command_queue commandQueue = clCreateCommandQueue(context, devices[0], 0, NULL);
+    if(commandQueue == NULL)
+    {
+        cerr << "Failed to create commandQueue for device 0";
+        return -1;
+    }
 
     /**Step 5: Create program object */
     const char *filename = "helloworld.cl";
     string sourceStr;
     status = convertToString(filename, sourceStr);
-    const char *source  = sourceStr.c_str();
+    const char *source = sourceStr.c_str();
     size_t sourceSize[] = {strlen(source)};
     cl_program program = clCreateProgramWithSource(context, 1, &source, sourceSize, NULL);
+    if(program == NULL)
+    {
+        cerr << "Failed to create CL program from source." << endl;
+        return -1;
+    }
 
     /**Step 6: Build program. */
     status=clBuildProgram(program, 1,devices,NULL,NULL,NULL);
+    if(status != CL_SUCCESS)
+    {
+        //Determine the reason for the error
+        char buildLog[16384];
+
+        //if build failed, this function will collect all error message
+        clGetProgramBuildInfo(program, devices[0], CL_PROGRAM_BUILD_LOG, sizeof(buildLog), buildLog,  NULL);
+
+        cerr << "Error in kernel:" << endl;
+        cerr << buildLog;
+        clReleaseProgram(program);
+        return -1;
+    }
 
     /**Step 7: Initial input,output for the host and create memory objects for the kernel*/
     const int NUM=512000;
@@ -45,20 +71,46 @@ int main(int argc, char* argv[])
     double* output = new double[NUM];
 
     cl_mem inputBuffer = clCreateBuffer(context, CL_MEM_READ_ONLY|CL_MEM_COPY_HOST_PTR, (NUM) * sizeof(double),(void *) input, NULL);
+    if(inputBuffer == NULL)
+    {
+        cerr << "inputBuffer is error!" << endl;
+    }
     cl_mem outputBuffer = clCreateBuffer(context, CL_MEM_WRITE_ONLY , NUM * sizeof(double), NULL, NULL);
+    if(outputBuffer == NULL)
+    {
+        cerr << "outputBuffer is error!" << endl;
+    }
 
     /**Step 8: Create kernel object */
     cl_kernel kernel = clCreateKernel(program,"helloworld", NULL);
+    if(kernel == NULL)
+    {
+        cerr << "Failed to create kernel" << endl;
+        return -1;
+    }
 
     /**Step 9: Sets Kernel arguments.*/
     status = clSetKernelArg(kernel, 0, sizeof(cl_mem), (void *)&inputBuffer);
     status = clSetKernelArg(kernel, 1, sizeof(cl_mem), (void *)&outputBuffer);
+    if(status != CL_SUCCESS)
+    {
+        cerr << "Error settint kernel arguments." << endl;
+        return -1;
+    }
 
     /**Step 10: Running the kernel.*/
     size_t global_work_size[1] = {NUM};
+    
+
+    cl_int err = CL_SUCCESS; 
     cl_event enentPoint;
     status = clEnqueueNDRangeKernel(commandQueue, kernel, 1, NULL, global_work_size, NULL, 0, NULL, &enentPoint);
-    clWaitForEvents(1,&enentPoint); ///wait
+    status = clWaitForEvents(1,&enentPoint); ///wait
+
+    if(status != CL_SUCCESS) 
+    {
+        cout << "Error in clWaitForEvents\n" << endl;
+    } 
     clReleaseEvent(enentPoint);
 
     /**Step 11: Read the cout put back to host memory.*/
@@ -84,116 +136,10 @@ int main(int argc, char* argv[])
         free(devices);
         devices = NULL;
     }
+
+    cout << "end"<<endl;
     return 0;
 }
-#else
-int main(int argc, char** argv)
-{
-    cl_context context = 0;
-    cl_command_queue commandQueue = 0;
-    cl_program program;
-    cl_device_id device = 0;
-    cl_kernel kernel = 0;
-    cl_mem memObjects[3] = {0,0,0};
-    cl_int errNum;
-
-    //Create an OpenCL context on first available platform
-    context = CreateContext();
-    if(context == NULL)
-    {
-        cerr << "Failed to create OpenCL context." << endl;
-        return 1;
-    }
-
-    //Create a command-queue on the first device available on the created context
-    commandQueue = CreateCommandQueue(context, &device);
-    if(commandQueue == NULL)
-    {
-        Cleanup(context, commandQueue, program, kernel, memObjects);
-        return -1;
-    }
-
-    //Create OpenCL program from helloworld.cl kernel source
-    program = CreateProgram(context, device, "helloworld.cl");
-    if(program == NULL)
-    {
-        Cleanup(context, commandQueue, program, kernel, memObjects);
-        return -1;
-    }
-
-    //Create OpenCL kernel
-    kernel = clCreateKernel(program, "hello_kernel", NULL);
-    if(kernel == NULL)
-    {
-        cerr << "Failed to create kernel" << endl;
-        Cleanup(context, commandQueue, program, kernel, memObjects);
-        return -1;
-    }
-
-    //Create memory objects that will be used as arguments to kernel.
-    //First Create host memory arrays that will be used to store the arguments to the kernel
-    #define ARRAY_SIZE 100
-    float result[ARRAY_SIZE];
-    float a[ARRAY_SIZE];
-    float b[ARRAY_SIZE];
-    for(int i = 0; i < ARRAY_SIZE; i++)
-    {
-        a[i] = i;
-        b[i] = i * 2;
-    }
-
-    if(!CreateMemObjects(context, memObjects, a, b))
-    {
-        Cleanup(context, commandQueue, program, kernel, memObjects);
-        return -1;
-    }
-
-    //Set the kernel arguments(result, a, b)
-    errNum = clSetKernelArg(kernel, 0, sizeof(cl_mem), &memObjects[0]); //a
-    errNum |= clSetKernelArg(kernel, 1, sizeof(cl_mem), &memObjects[1]);//b
-    errNum |= clSetKernelArg(kernel, 2, sizeof(cl_mem), &memObjects[2]);//result
-    if(errNum != CL_SUCCESS)
-    {
-        cerr << "Error settint kernel arguments." << endl;
-        Cleanup(context, commandQueue, program, kernel, memObjects);
-        return -1;
-    }
-
-    size_t globalWorkSize[1] = {ARRAY_SIZE};
-    size_t localWorkSize[1] = {1};
-
-    //Queue the kernal up for execution across the array
-    errNum = clEnqueueNDRangeKernel(commandQueue, kernel, 1, NULL,
-             globalWorkSize, localWorkSize, 0,
-                NULL, NULL);
-    if(errNum != CL_SUCCESS)
-    {
-        cerr << "Error queuing kernel for execution." << endl;
-        Cleanup(context, commandQueue, program, kernel, memObjects);
-        return -1;
-    }
-
-    //Read the output buffer back to the Host
-    errNum = clEnqueueReadBuffer(commandQueue, memObjects[2], CL_TRUE/*blocking_read*/,
-                 0, ARRAY_SIZE * sizeof(float), result, 0, NULL, NULL);
-    if(errNum != CL_SUCCESS)
-    {
-        cerr << "Error reading result buffer." << endl;
-        Cleanup(context, commandQueue, program, kernel, memObjects);
-        return -1;
-    }
-
-    //Output the result buffer
-    for(int i = 0; i < ARRAY_SIZE; i++)
-    {
-        cout << result[i] << " ";
-    }
-    cout << endl;
-    cout << "Executed program successfully." << endl;
-    Cleanup(context, commandQueue, program, kernel, memObjects);
-    return 0;
-}
-#endif
 
 
 
