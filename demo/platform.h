@@ -7,7 +7,9 @@
 #include <iostream>
 #include <string>
 #include <fstream>
+#include <sstream>
 
+using namespace std;
 
 #define ARRAY_SIZE 100
 
@@ -20,7 +22,6 @@ cl_program CreateProgram(cl_context context, cl_device_id device, const char* fi
 
 bool CreateMemObjects(cl_context context, cl_mem memObjects[3], float *a, float* b);
                                     
-
 #endif
 
 
